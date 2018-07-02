@@ -36,92 +36,92 @@ my $max_threads = 10;
 setpriority( 0, $$, 10 );
 
 sub get_input {
-	my @input;
-	my $pattern = shift @ARGV;
+  my @input;
+  my $pattern = shift @ARGV;
 
-	if( -p STDIN ) {
-		push( @input, \'stdin' );
-	}
-	else {
-		foreach ( @ARGV ) {
-			my $file;
-			if( $_ =~ /.*\.gz$/ ) {
-				open( $file, "gzip -dc $_ |" ) or die( "Error: Cannot open '$_'\n" );
-			}
-			else {
-				open( $file, "< $_" ) or die( "Error: Cannot open '$_'\n" );
-			}
-			push( @input, \$file );
-		}
-	}
-	return( \@input, $pattern );
+  if( -p STDIN ) {
+    push( @input, \'stdin' );
+  }
+  else {
+    foreach ( @ARGV ) {
+      my $file;
+      if( $_ =~ /.*\.gz$/ ) {
+        open( $file, "gzip -dc $_ |" ) or die( "Error: Cannot open '$_'\n" );
+      }
+      else {
+        open( $file, "< $_" ) or die( "Error: Cannot open '$_'\n" );
+      }
+      push( @input, \$file );
+    }
+  }
+  return( \@input, $pattern );
 }
 
 sub parse {
-	my $fh = ${${$_[0]}};
-	my $pattern = $_[1];
-	my $t_queue = ${$_[2]};
-	my @data;
+  my $fh = ${${$_[0]}};
+  my $pattern = $_[1];
+  my $t_queue = ${$_[2]};
+  my @data;
 
-	if( $fh eq 'stdin' ) {	## if STDIN (pipe), execute
-		while( <STDIN> ) {
-			if( $_ =~ $pattern ) {
-				print $_;
-			}
-		}
-	}
-	else {
-		while( <$fh> ) {
-			if( $_ =~ $pattern ) {
-				push( @data, $_ );
-			}
-		}
-	}
+  if( $fh eq 'stdin' ) {  ## if STDIN (pipe), execute
+    while( <STDIN> ) {
+      if( $_ =~ $pattern ) {
+        print $_;
+      }
+    }
+  }
+  else {
+    while( <$fh> ) {
+      if( $_ =~ $pattern ) {
+        push( @data, $_ );
+      }
+    }
+  }
 
-	close $fh;
-	$t_queue->dequeue_nb;	## signal thread completion by removing
-							## an element from the shared queue
-	return \@data;
+  close $fh;
+  $t_queue->dequeue_nb;  ## signal thread completion by removing
+              ## an element from the shared queue
+  return \@data;
 }
 
 sub main {
-	my( $input, $pattern ) = get_input();
-	my $regex;
+  my( $input, $pattern ) = get_input();
+  my $regex;
 
-	## optimize IP address patterns for regex compilation
-	if( $pattern =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/ ) {
-		$pattern =~ s/\./\\\./g;
-		$regex = qr/\D$pattern/;
-	}
-	else {
-		$regex = qr/$pattern/;
-	}
-	my @thr_array;
-	my $counter = 0;
-	my $queue = new Thread::Queue;	## put an element on the queue to signal
-									## an active thread
-	foreach( @{$input} ) {
-		push( @thr_array, threads->create( \&parse, \$_, $regex, \$queue ) );
-		$queue->enqueue("placeholder");
-			
-		if( $queue->pending > $max_threads ) {
-			while( $queue->pending > $max_threads ) {
-				sleep 0.001;
-			}
+  ## optimize IP address patterns for regex compilation
+  if( $pattern =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/ ) {
+    $pattern =~ s/\./\\\./g;
+    $regex = qr/\D$pattern/;
+  }
+  else {
+    $regex = qr/$pattern/;
+  }
+  my @thr_array;
+  my $counter = 0;
+  my $queue = new Thread::Queue;  ## put an element on the queue to signal
+                  ## an active thread
+  foreach( @{$input} ) {
+    push( @thr_array, threads->create( \&parse, \$_, $regex, \$queue ) );
+    $queue->enqueue("placeholder");
+      
+    if( $queue->pending > $max_threads ) {
+      while( $queue->pending > $max_threads ) {
+        sleep 0.001;
+      }
 
-			## for each thread, print data, clean up and close properly
-			my $ReturnData = $thr_array[$counter]->join();
-			print @{$ReturnData}, "\n";
-			delete $thr_array[$counter];
-			$counter++;
-		}
-	}
+      ## for each thread, print data, clean up and close properly
+      my $ReturnData = $thr_array[$counter]->join();
+      print @{$ReturnData}, "\n";
+      delete $thr_array[$counter];
+      $counter++;
+    }
+  }
 
-	## same as above, but just catching remaining threads before closing program
-	foreach( $counter .. $#thr_array ) {
-		my $ReturnData = $thr_array[$_]->join();
-		print @{$ReturnData}, "\n";
-	}
+  ## same as above, but just catching remaining threads before closing program
+  foreach( $counter .. $#thr_array ) {
+    my $ReturnData = $thr_array[$_]->join();
+    print @{$ReturnData}, "\n";
+  }
 }
 
 main();
